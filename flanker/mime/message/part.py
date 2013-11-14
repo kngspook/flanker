@@ -190,11 +190,30 @@ class MimePart(object):
     @property
     def size(self):
         """ Returns message size in bytes"""
-        if isinstance(self._container, Stream):
-            return self._container.size
+        class CounterIO(object):
+            def __init__(self):
+                self.length = 0
+            def tell(self):
+                return self.length
+            def write(self, s):
+                self.length += len(s)
+            def seek(self, p):
+                self.length = p
+            def getvalue(self):
+                return self.length
+            def close(self):
+                pass
+
+        if self.is_root() and not self.was_changed():
+            if isinstance(self._container, Stream):
+                return self._container.size
+            else:
+                return sum(part._container.size
+                           for part in self.walk(with_self=True))
         else:
-            return sum(part._container.size
-                       for part in self.walk(with_self=True))
+            with closing(CounterIO()) as out:
+                self.to_stream(out)
+                return out.getvalue()
 
     @property
     def headers(self):
@@ -357,6 +376,7 @@ class MimePart(object):
             except DecodingError:
                 out.seek(original_position)
                 out.write(self._container.read_message())
+
 
     def to_stream_when_changed(self, out):
 
